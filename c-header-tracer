@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+
+# $1 - Base directory
+# $2 - Start file
+# $3 - Include Paths
+
+# set -x
+
+# Printing subshell output with newlines
+# echo "${VAR}"
+# printf "%s", "${VAR}"
+
+ALL_HEADERS=$(find $1 -type f -name "*.h")
+
+for HEADER in $ALL_HEADERS; do
+    FUNCTIONS_MACROS=$(grep -H "\S\s*\S\+(" ${HEADER})
+    ALL_FUNCTIONS_MACROS="${ALL_FUNCTIONS_MACROS}${FUNCTIONS_MACROS}"$'\n'
+    # Other way to concatenate output from commands
+    # ALL_FUNCTIONS_MACROS+="${FUNCTIONS_MACROS}"$'\n'
+done
+
+echo "${ALL_FUNCTIONS_MACROS}" > all-functions-macros
+
+# ALL_MACROS=$(cat all-functions-macros | grep "^#[[:blank:]]*define.*$")
+ALL_MACROS=$(cat all-functions-macros | grep "#[[:blank:]]*define.*")
+
+ALL_MACRO_NAMES=$(echo "${ALL_MACROS}" | sed "s/^.*\.h:#[[:blank:]]*define[[:blank:]]*\(.*\)(.*$/\1/")
+
+echo "${ALL_MACRO_NAMES}"
+
+ALL_FUNCTION_NAMES=$(echo "${ALL_FUNCTIONS_MACROS}" | grep -v "^# *define" | sed "s/^.* \(.*\) *(.*$/\1/")
+
+# echo "${ALL_FUNCTION_NAMES}"
+
+FILE_FUNCTION_LIST= 
+
