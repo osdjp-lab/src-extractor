@@ -1,36 +1,60 @@
 #!/usr/bin/env bash
 
-# $1 - Base directory
-# $2 - Start file
-# $3 - Include Paths
+# $1 - Start file
+# $2 - Primary local include directory
+# $3 - Package base directory
 
 # set -x
 
-# Printing subshell output with newlines
-# echo "${VAR}"
-# printf "%s", "${VAR}"
+extract-includes() {
+    INCLUDES=$(grep "^# *include" $1 | sed 's/.*[<"]\(.*\)[>"].*/\1/')
+    printf "%s\n" "${INCLUDES}"
+}
 
-ALL_HEADERS=$(find $1 -type f -name "*.h")
+# Resolved errors caused by multiple find results
+# (quick fix via addition of file search order preference)
+find-includes() {
+    for include in $1; do
+        # Search primary local include directory
+        INCLUDE_PATH=$(find $2 -name $(basename $include))
+        if [[ -n $INCLUDE_PATH ]]; then
+            printf "%s\n" $INCLUDE_PATH
+            continue
+        fi
+        
+        # Search package base directory
+        INCLUDE_PATH=$(find $3 -name $(basename $include))
+        if [[ -n $INCLUDE_PATH ]]; then
+            printf "%s\n" $INCLUDE_PATH
+            continue
+        fi
 
-for HEADER in $ALL_HEADERS; do
-    FUNCTIONS_MACROS=$(grep -H "\S\s*\S\+(" ${HEADER})
-    ALL_FUNCTIONS_MACROS="${ALL_FUNCTIONS_MACROS}${FUNCTIONS_MACROS}"$'\n'
-    # Other way to concatenate output from commands
-    # ALL_FUNCTIONS_MACROS+="${FUNCTIONS_MACROS}"$'\n'
-done
+        # Search /usr/include if no match print to stderr
+        INCLUDE_PATH=$(find /usr/include -name $(basename $include))
+        if [[ -z $INCLUDE_PATH ]]; then
+            printf "%s\n" $include 1>&2
+        fi
+    done
+}
 
-echo "${ALL_FUNCTIONS_MACROS}" > all-functions-macros
+recursive-find-includes() {
+    # Find initial include list
+    INCLUDE_PATHS_1=$(find-includes "$(extract-includes $1)" $2 $3)
+    
+    # Recursively find all includes
+    while [[ -n $INCLUDE_PATHS_1 ]]; do
+        for include in $INCLUDE_PATHS_1; do
+            # Prevent endless search recursion
+            if ! [[ $INCLUDE_PATHS =~ $include ]]; then
+                INCLUDE_PATHS+=$include$'\n'
+                printf "%s\n" $include
+                INCLUDE_PATHS_2+=$(find-includes "$(extract-includes $include)" $2 $3)$'\n'
+            fi
+        done
+        INCLUDE_PATHS_1=$INCLUDE_PATHS_2
+        INCLUDE_PATHS_2=""
+    done
+}
 
-# ALL_MACROS=$(cat all-functions-macros | grep "^#[[:blank:]]*define.*$")
-ALL_MACROS=$(cat all-functions-macros | grep "#[[:blank:]]*define.*")
-
-ALL_MACRO_NAMES=$(echo "${ALL_MACROS}" | sed "s/^.*\.h:#[[:blank:]]*define[[:blank:]]*\(.*\)(.*$/\1/")
-
-echo "${ALL_MACRO_NAMES}"
-
-ALL_FUNCTION_NAMES=$(echo "${ALL_FUNCTIONS_MACROS}" | grep -v "^# *define" | sed "s/^.* \(.*\) *(.*$/\1/")
-
-# echo "${ALL_FUNCTION_NAMES}"
-
-FILE_FUNCTION_LIST= 
+recursive-find-includes $1 $2 $3 2>/dev/null
 
