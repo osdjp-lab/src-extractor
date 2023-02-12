@@ -1,2 +1,2 @@
-# C/C++ package program source code extractor
-Extracts a program along with all its dependancies from its containing package.
+# src-extractor
+A tool for the extraction of individual C/C++ programs from their containing packages.
