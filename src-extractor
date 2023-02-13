@@ -1,29 +1,62 @@
 #!/usr/bin/env bash
 
-# $1 - Start file
-# $2 - Primary local include directory
-# $3 - Package base directory
+# $1 - Initial file
+# $2 - Package base directory
 
 # set -x
 
-extract-includes() {
+INIT_FILE=$1
+BASE_DIR=$2
+INCLUDE_DIR=$(find $2 -type d -iname "*include*")
+LIB_DIR=$(find $2 -type d -iname "*lib*")
+SRC_DIR=$(find $2 -type d -iname "*src*")
+TEST_DIR=$(find $2 -type d -iname "*test*")
+
+if [[ -z $INCLUDE_DIR ]]; then
+    INCLUDE_DIR=$BASE_DIR
+fi
+if [[ -z $LIB_DIR ]]; then
+    LIB_DIR=$BASE_DIR
+fi
+if [[ -z $SRC_DIR ]]; then
+    SRC_DIR=$BASE_DIR
+fi
+if [[ -z $TEST_DIR ]]; then
+    TEST_DIR=$BASE_DIR
+fi
+
+# Returns list of all include statement names found in file
+extract-included-file-names() {
     INCLUDES=$(grep "^# *include" $1 | sed 's/.*[<"]\(.*\)[>"].*/\1/')
     printf "%s\n" "${INCLUDES}"
 }
 
-# Resolved errors caused by multiple find results
-# (quick fix via addition of file search order preference)
-find-includes() {
+# Returns list of path names for all found local included files
+find-included-file-paths() {
     for include in $1; do
-        # Search primary local include directory
-        INCLUDE_PATH=$(find $2 -name $(basename $include))
+        # Search include directory
+        INCLUDE_PATH=$(find $INCLUDE_DIR -name $(basename $include))
+        if [[ -n $INCLUDE_PATH ]]; then
+            printf "%s\n" $INCLUDE_PATH
+            continue
+        fi
+
+        # Search library directory
+        INCLUDE_PATH=$(find $LIB_DIR -name $(basename $include))
         if [[ -n $INCLUDE_PATH ]]; then
             printf "%s\n" $INCLUDE_PATH
             continue
         fi
         
+        # Search source directory
+        INCLUDE_PATH=$(find $SRC_DIR -name $(basename $include))
+        if [[ -n $INCLUDE_PATH ]]; then
+            printf "%s\n" $INCLUDE_PATH
+            continue
+        fi
+
         # Search package base directory
-        INCLUDE_PATH=$(find $3 -name $(basename $include))
+        INCLUDE_PATH=$(find $BASE_DIR -name $(basename $include))
         if [[ -n $INCLUDE_PATH ]]; then
             printf "%s\n" $INCLUDE_PATH
             continue
@@ -37,24 +70,124 @@ find-includes() {
     done
 }
 
-recursive-find-includes() {
-    # Find initial include list
-    INCLUDE_PATHS_1=$(find-includes "$(extract-includes $1)" $2 $3)
-    
-    # Recursively find all includes
-    while [[ -n $INCLUDE_PATHS_1 ]]; do
-        for include in $INCLUDE_PATHS_1; do
-            # Prevent endless search recursion
-            if ! [[ $INCLUDE_PATHS =~ $include ]]; then
-                INCLUDE_PATHS+=$include$'\n'
-                printf "%s\n" $include
-                INCLUDE_PATHS_2+=$(find-includes "$(extract-includes $include)" $2 $3)$'\n'
-            fi
+# Returns list of all local included file dependencies
+recursiviely-find-included-files() {
+    for src_file in $1; do
+        # Find initial include list
+        INCLUDE_PATHS_1=$(find-included-file-paths "$(extract-included-file-names $src_file)")
+        
+        # Recursively find all includes
+        while [[ -n $INCLUDE_PATHS_1 ]]; do
+            for include in $INCLUDE_PATHS_1; do
+                # Prevent endless search recursion
+                if ! [[ $INCLUDE_PATHS =~ $include ]]; then
+                    INCLUDE_PATHS+=$include$'\n'
+                    printf "%s\n" $include
+                    INCLUDE_PATHS_2+=$(find-included-file-paths "$(extract-included-file-names $include)")$'\n'
+                fi
+            done
+            INCLUDE_PATHS_1=$INCLUDE_PATHS_2
+            INCLUDE_PATHS_2=""
         done
-        INCLUDE_PATHS_1=$INCLUDE_PATHS_2
-        INCLUDE_PATHS_2=""
     done
 }
 
-recursive-find-includes $1 $2 $3 2>/dev/null
+# Returns list of files associated with included file dependancies
+find-associated-files() {
+    for include in $1; do
+        FILE_BASENAME=$(printf "%s" "$(basename $include)" | sed 's/\.h//')
+        
+        # Search include file source directory
+        ALL_FOUND=$(find $(dirname $include) -type f -name "*${FILE_BASENAME}*.c")
+        if [[ -n $ALL_FOUND ]]; then
+            ASC_FILES=$(grep -l "^ *# *include *[<\"]${FILE_BASENAME}.h[>\"]" $ALL_FOUND)
+        else
+            ASC_FILES=''
+        fi
+        if [[ -n $ASC_FILES ]]; then
+            for file in $ASC_FILES; do
+                if ! [[ $ALL_FILES =~ $file ]]; then
+                    ALL_FILES+=$file$'\n'
+                    printf "%s\n" $file
+                fi
+            done
+            continue
+        fi
+
+        # Search package library directories
+        ALL_FOUND=$(find $LIB_DIR -type f -name "*${FILE_BASENAME}*.c")
+        if [[ -n $ALL_FOUND ]]; then
+            ASC_FILES=$(grep -l "^ *# *include *[<\"]${FILE_BASENAME}.h[>\"]" $ALL_FOUND)
+        else
+            ASC_FILES=''
+        fi
+        if [[ -n $ASC_FILES ]]; then
+            for file in $ASC_FILES; do
+                if ! [[ $ALL_FILES =~ $file ]]; then
+                    ALL_FILES+=$file$'\n'
+                    printf "%s\n" $file
+                fi
+            done
+            continue
+        fi
+
+        # Search package source directories
+        ALL_FOUND=$(find $SRC_DIR -type f -name "*${FILE_BASENAME}*.c")
+        if [[ -n $ALL_FOUND ]]; then
+            ASC_FILES=$(grep -l "^ *# *include *[<\"]${FILE_BASENAME}.h[>\"]" $ALL_FOUND)
+        else
+            ASC_FILES=''
+        fi
+        if [[ -n $ASC_FILES ]]; then
+            for file in $ASC_FILES; do
+                if ! [[ $ALL_FILES =~ $file ]]; then
+                    ALL_FILES+=$file$'\n'
+                    printf "%s\n" $file
+                fi
+            done
+            continue
+        fi
+        
+        # Search package base directory
+        ALL_FOUND=$(find $BASE_DIR -type f -name "*${FILE_BASENAME}*.c")
+        if [[ -n $ALL_FOUND ]]; then
+            ASC_FILES=$(grep -l "^ *# *include *[<\"]${FILE_BASENAME}.h[>\"]" $ALL_FOUND)
+        else
+            ASC_FILES=''
+        fi
+        if [[ -n $ASC_FILES ]]; then
+            for file in $ASC_FILES; do
+                if ! [[ $ALL_FILES =~ $file ]]; then
+                    ALL_FILES+=$file$'\n'
+                    printf "%s\n" $file
+                fi
+            done
+        fi
+    done
+}
+
+# Recursively find all included and associated files
+recursively-find-all-dependencies() {
+    INCLUDED_FILES_1=$(recursiviely-find-included-files $1 2>/dev/null)
+    printf "%s\n" "$INCLUDED_FILES_1"
+    ASC_FILES_1=$(find-associated-files "$INCLUDED_FILES_1")
+    printf "%s\n" "$ASC_FILES_1"
+    while [[ -n $ASC_FILES_1 ]]; do
+        INCLUDED_FILES_2=$(recursiviely-find-included-files $ASC_FILES_1 2>/dev/null)
+        # Prevent endless search recursion
+        TMP_INCLUDED_FILES=""
+        for file in $INCLUDED_FILES_2; do
+            if ! [[ $INCLUDED_FILES_1 =~ $file ]]; then
+                INCLUDED_FILES_1+=$'\n'$file
+                TMP_INCLUDED_FILES+=$file$'\n'
+            fi
+        done
+        INCLUDED_FILES_2=$TMP_INCLUDED_FILES
+        ASC_FILES_2=$(find-associated-files "$INCLUDED_FILES_2")
+        printf "%s\n" "$ASC_FILES_2"
+        ASC_FILES_1=$ASC_FILES_2
+    done
+}
+
+recursively-find-all-dependencies $INIT_FILE
 
