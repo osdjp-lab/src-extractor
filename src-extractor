@@ -27,7 +27,7 @@ fi
 
 # Returns list of all include statement names found in file
 extract-included-file-names() {
-    INCLUDES=$(grep "^# *include" $1 | sed 's/.*[<"]\(.*\)[>"].*/\1/')
+    INCLUDES=$(grep "^ *# *include" $1 | sed 's/.*[<"]\(.*\)[>"].*/\1/')
     printf "%s\n" "${INCLUDES}"
 }
 
@@ -92,76 +92,74 @@ recursiviely-find-included-files() {
     done
 }
 
+# Returns list of matching files
+find-matching-files() {
+    FILE_BASENAME=$1
+    SEARCH_DIR=$2
+    PROCESSED_FILES=$3
+
+    # Check for dedicated directory
+    FOUND_DIR=$(find $SEARCH_DIR -type d -name "*${FILE_BASENAME}*")
+    if [[ -n $FOUND_DIR ]]; then
+        # Partial import not optimal
+        FOUND_FILES=$(find $FOUND_DIR -type f -name "*.c")
+    else
+        # Find files directly
+        FOUND_FILES=$(find $SEARCH_DIR -type f -name "*${FILE_BASENAME}*.c")
+    fi
+
+    # Check for presence of include
+    # if [[ -n $FOUND_FILES ]]; then
+    #     ASC_FILES=$(grep -l "^ *# *include *[<\"]${FILE_BASENAME}\..[>\"]" $FOUND_FILES)
+    # else
+    #     ASC_FILES=''
+    # fi
+    ASC_FILES=$FOUND_FILES
+
+    # Filter results
+    for file in $ASC_FILES; do
+        if ! [[ $PROCESSED_FILES =~ $file ]]; then
+            PROCESSED_FILES+=$file$'\n'
+            printf "%s\n" $file
+        fi
+    done
+}
+
 # Returns list of files associated with included file dependancies
 find-associated-files() {
     for include in $1; do
         FILE_BASENAME=$(printf "%s" "$(basename $include)" | sed 's/\.h//')
         
         # Search include file source directory
-        ALL_FOUND=$(find $(dirname $include) -type f -name "*${FILE_BASENAME}*.c")
-        if [[ -n $ALL_FOUND ]]; then
-            ASC_FILES=$(grep -l "^ *# *include *[<\"]${FILE_BASENAME}.h[>\"]" $ALL_FOUND)
-        else
-            ASC_FILES=''
-        fi
+        ASC_FILES=$(find-matching-files $FILE_BASENAME $(dirname $include) "${PROCESSED_FILES}")
         if [[ -n $ASC_FILES ]]; then
-            for file in $ASC_FILES; do
-                if ! [[ $ALL_FILES =~ $file ]]; then
-                    ALL_FILES+=$file$'\n'
-                    printf "%s\n" $file
-                fi
-            done
+            printf "%s\n" "$ASC_FILES"
+            PROCESSED_FILES+=$'\n'$ASC_FILES
             continue
         fi
 
         # Search package library directories
-        ALL_FOUND=$(find $LIB_DIR -type f -name "*${FILE_BASENAME}*.c")
-        if [[ -n $ALL_FOUND ]]; then
-            ASC_FILES=$(grep -l "^ *# *include *[<\"]${FILE_BASENAME}.h[>\"]" $ALL_FOUND)
-        else
-            ASC_FILES=''
-        fi
+        ASC_FILES=$(find-matching-files $FILE_BASENAME $LIB_DIR "${PROCESSED_FILES}")
         if [[ -n $ASC_FILES ]]; then
-            for file in $ASC_FILES; do
-                if ! [[ $ALL_FILES =~ $file ]]; then
-                    ALL_FILES+=$file$'\n'
-                    printf "%s\n" $file
-                fi
-            done
+            printf "%s\n" "$ASC_FILES"
+            PROCESSED_FILES+=$'\n'$ASC_FILES
             continue
         fi
 
         # Search package source directories
-        ALL_FOUND=$(find $SRC_DIR -type f -name "*${FILE_BASENAME}*.c")
-        if [[ -n $ALL_FOUND ]]; then
-            ASC_FILES=$(grep -l "^ *# *include *[<\"]${FILE_BASENAME}.h[>\"]" $ALL_FOUND)
-        else
-            ASC_FILES=''
-        fi
+        ASC_FILES=$(find-matching-files $FILE_BASENAME $SRC_DIR "${PROCESSED_FILES}")
         if [[ -n $ASC_FILES ]]; then
-            for file in $ASC_FILES; do
-                if ! [[ $ALL_FILES =~ $file ]]; then
-                    ALL_FILES+=$file$'\n'
-                    printf "%s\n" $file
-                fi
-            done
+            printf "%s\n" "$ASC_FILES"
+            PROCESSED_FILES+=$'\n'$ASC_FILES
             continue
         fi
-        
+
         # Search package base directory
-        ALL_FOUND=$(find $BASE_DIR -type f -name "*${FILE_BASENAME}*.c")
-        if [[ -n $ALL_FOUND ]]; then
-            ASC_FILES=$(grep -l "^ *# *include *[<\"]${FILE_BASENAME}.h[>\"]" $ALL_FOUND)
-        else
-            ASC_FILES=''
-        fi
+        ASC_FILES=$(find-matching-files $FILE_BASENAME $BASE_DIR "${PROCESSED_FILES}")
         if [[ -n $ASC_FILES ]]; then
-            for file in $ASC_FILES; do
-                if ! [[ $ALL_FILES =~ $file ]]; then
-                    ALL_FILES+=$file$'\n'
-                    printf "%s\n" $file
-                fi
-            done
+            printf "%s\n" "$ASC_FILES"
+            PROCESSED_FILES+=$'\n'$ASC_FILES
+            continue
         fi
     done
 }
@@ -189,5 +187,5 @@ recursively-find-all-dependencies() {
     done
 }
 
-recursively-find-all-dependencies $INIT_FILE
+recursively-find-all-dependencies $INIT_FILE | sort -u
 
